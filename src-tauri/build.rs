@@ -1,8 +1,7 @@
 use std::{env, fs, path::Path};
 
-const SETTINGS: [&str; 3] = [
+const SETTINGS: [&str; 2] = [
     "COLLABOT_BRIDGE_DISCORD_CLIENT_ID",
-    "COLLABOT_BRIDGE_DISCORD_ORIGIN",
     "COLLABOT_BRIDGE_DISCORD_TOKEN_URL",
 ];
 

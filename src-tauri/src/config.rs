@@ -13,15 +13,9 @@ pub const SERVER_PORT: u16 = 46463;
 /// from reading who is in the voice channel.
 const ALLOWED_ORIGINS: &[&str] = &["https://overlay.colla.bot", "http://localhost:3000"];
 
-/// The ports Discord's client may take for its RPC server: the first one that is free.
-const DISCORD_RPC_PORTS: std::ops::RangeInclusive<u16> = 6463..=6472;
-
-// The Discord application the bridge signs in as: its client ID, an origin registered for it, and
-// the service that exchanges its codes for tokens. Discord only accepts an RPC connection for an
-// application from an `Origin` that application has registered, and only gives the `rpc` scope to
-// applications it has approved.
+// The Discord application the bridge signs in as: its client ID, and the service that exchanges its
+// codes for tokens. Discord only gives the `rpc` scope to applications it has approved.
 const DISCORD_CLIENT_ID: &str = env!("COLLABOT_BRIDGE_DISCORD_CLIENT_ID");
-const DISCORD_ORIGIN: &str = env!("COLLABOT_BRIDGE_DISCORD_ORIGIN");
 const DISCORD_TOKEN_URL: &str = env!("COLLABOT_BRIDGE_DISCORD_TOKEN_URL");
 
 /// What the bridge asks the user to allow: `rpc` to learn who is in the voice channel and who
@@ -57,29 +51,21 @@ pub fn allowed_origins() -> Vec<String> {
 /// How to reach Discord and as which application.
 pub struct DiscordApp {
     pub client_id: String,
-    /// Sent as the `Origin` of the RPC connection.
-    pub origin: String,
     /// Takes `{"code": …}` by POST and answers with `{"access_token": …}`.
     pub token_url: String,
-    /// The addresses to look for Discord's RPC server at, in this order.
-    pub rpc_urls: Vec<String>,
+    /// The pipes to look for Discord's client at, in this order.
+    pub ipc_paths: Vec<String>,
 }
 
-/// The application the bridge was built with, or what `COLLABOT_BRIDGE_DISCORD_CLIENT_ID`,
-/// `…_DISCORD_ORIGIN`, `…_DISCORD_TOKEN_URL` and `…_DISCORD_RPC_URLS` name in its place when it
-/// runs.
+/// The application the bridge was built with and the pipes of this system, or what
+/// `COLLABOT_BRIDGE_DISCORD_CLIENT_ID`, `…_DISCORD_TOKEN_URL` and `…_DISCORD_IPC_PATHS` name in
+/// their place when it runs.
 pub fn discord_app() -> DiscordApp {
     DiscordApp {
         client_id: variable("DISCORD_CLIENT_ID").unwrap_or_else(|| DISCORD_CLIENT_ID.to_owned()),
-        origin: variable("DISCORD_ORIGIN").unwrap_or_else(|| DISCORD_ORIGIN.to_owned()),
         token_url: variable("DISCORD_TOKEN_URL").unwrap_or_else(|| DISCORD_TOKEN_URL.to_owned()),
-        rpc_urls: variable("DISCORD_RPC_URLS")
-            .map(|value| list(&value))
-            .unwrap_or_else(|| {
-                DISCORD_RPC_PORTS
-                    .map(|port| format!("ws://127.0.0.1:{port}"))
-                    .collect()
-            }),
+        ipc_paths: variable("DISCORD_IPC_PATHS")
+            .map_or_else(crate::ipc::default_paths, |value| list(&value)),
     }
 }
 

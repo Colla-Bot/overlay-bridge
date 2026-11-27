@@ -1,10 +1,11 @@
-//! Follows Discord's client through its local RPC server: which voice channel the user is in, who
-//! else is there, and who is speaking.
+//! Follows Discord's client through its local RPC server, over the pipe the client serves it on:
+//! which voice channel the user is in, who else is there, and who is speaking.
 //!
 //! A Rust port of Overlayed's RPC manager, `apps/desktop/src/rpc/manager.ts`
 //! (<https://github.com/overlayeddev/overlayed>): the commands and their order, and how it
 //! reconnects, keeps the voice channel in sync and asks for permission again, are Overlayed's.
-//! What has changed since, such as looking at more than one address, is the bridge's own.
+//! What has changed since, such as reaching Discord over its pipe rather than its WebSocket and
+//! looking in more than one place, is the bridge's own.
 
 use std::{
     collections::{HashSet, VecDeque},
@@ -15,23 +16,16 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::{
-    net::TcpStream,
     sync::mpsc::UnboundedReceiver,
-    time::{sleep_until, timeout, Instant},
-};
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
-    MaybeTlsStream, WebSocketStream,
+    time::{sleep_until, Instant},
 };
 
 use crate::{
     config::{DiscordApp, DISCORD_SCOPES},
+    ipc::{self, Frame, Pipe},
     state::{Channel, Command, DiscordStatus, Member, Shared, Snapshot},
     tokens::TokenStore,
 };
-
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// How long to wait before looking for Discord again, by how many attempts failed in a row.
 const RECONNECT_DELAYS: [Duration; 4] = [
@@ -45,10 +39,6 @@ const RECONNECT_DELAYS: [Duration; 4] = [
 /// one draws on the same allowance.
 const CONNECTIONS_PER_MINUTE: usize = 10;
 const MINUTE: Duration = Duration::from_mins(1);
-/// How long each address gets to answer, the WebSocket handshake included, which a busy Discord
-/// answers late. Where nothing listens, Windows reports the refused connection only after about
-/// two seconds, as it tries again first, so a longer wait would slow down looking for Discord.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 /// How often to ask for the voice channel again, which mends anything an event did not tell and
 /// notices a connection that died silently.
 const RESYNC_INTERVAL: Duration = Duration::from_secs(20);
@@ -74,7 +64,10 @@ const CHANNEL_EVENTS: [&str; 5] = [
 const REAUTHORIZE_ERRORS: [i64; 4] = [4007, 4009, 4010, 5000];
 /// The code Discord closes a connection with when the user takes the application's permission
 /// back in Discord's settings.
-const TOKEN_REVOKED: u16 = 4003;
+const TOKEN_REVOKED: i64 = 4003;
+/// The user in the greeting of arRPC, a stand-in for Discord's RPC that other clients bring. It
+/// takes a pipe as Discord does and greets, but answers nothing about signing in or voice.
+const STAND_IN_USER: &str = "1045800378228281345";
 
 /// Why a session ended.
 enum End {
@@ -96,7 +89,7 @@ struct Resync {
 
 /// One connection to Discord, from its greeting to its end.
 struct Session<'a> {
-    socket: Socket,
+    socket: Pipe,
     shared: &'a Shared,
     app: &'a DiscordApp,
     tokens: &'a TokenStore,
@@ -129,19 +122,12 @@ impl Session<'_> {
             let consent_due = self.consent_due;
             let signing_in = !self.authenticated && self.status() == DiscordStatus::Connecting;
             let step = tokio::select! {
-                message = self.socket.next() => match message {
-                    Some(Ok(Message::Text(text))) => self.handle(&text).await,
-                    Some(Ok(Message::Close(frame))) => {
-                        if frame.as_ref().is_some_and(|frame| u16::from(frame.code) == TOKEN_REVOKED) {
-                            // The user said no in Discord itself. Asking again is theirs to do.
-                            self.tokens.clear();
-                            *self.may_prompt = false;
-                            Err(End::Forgotten)
-                        } else {
-                            Err(End::Lost(format!("Discord closed the connection: {frame:?}")))
-                        }
+                frame = self.socket.next() => match frame {
+                    Some(Ok(Frame { opcode: ipc::FRAME, body })) => self.handle(&body).await,
+                    Some(Ok(Frame { opcode: ipc::PING, body })) => {
+                        self.write(ipc::PONG, body).await
                     }
-                    // Pings are answered by the library.
+                    Some(Ok(Frame { opcode: ipc::CLOSE, body })) => Err(self.closed(&body)),
                     Some(Ok(_)) => Ok(()),
                     Some(Err(error)) => Err(End::Lost(error.to_string())),
                     None => Err(End::Lost("the connection ended".to_owned())),
@@ -175,6 +161,25 @@ impl Session<'_> {
         self.shared.update(|snapshot| snapshot.discord = status);
     }
 
+    async fn write(&mut self, opcode: u32, body: String) -> Result<(), End> {
+        self.socket
+            .send(Frame { opcode, body })
+            .await
+            .map_err(|error| End::Lost(error.to_string()))
+    }
+
+    /// Takes Discord's word for why it ends the connection: `{"code": …, "message": …}`.
+    fn closed(&mut self, body: &str) -> End {
+        let reason: Value = serde_json::from_str(body).unwrap_or_default();
+        if reason["code"].as_i64() == Some(TOKEN_REVOKED) {
+            // The user said no in Discord itself. Asking again is theirs to do.
+            self.tokens.clear();
+            *self.may_prompt = false;
+            return End::Forgotten;
+        }
+        End::Lost(format!("Discord closed the connection: {reason}"))
+    }
+
     /// Sends a command and returns the nonce Discord will answer it with.
     async fn send(
         &mut self,
@@ -191,10 +196,7 @@ impl Session<'_> {
         if let Some(evt) = evt {
             payload["evt"] = json!(evt);
         }
-        self.socket
-            .send(Message::text(payload.to_string()))
-            .await
-            .map_err(|error| End::Lost(error.to_string()))?;
+        self.write(ipc::FRAME, payload.to_string()).await?;
         Ok(nonce)
     }
 
@@ -312,6 +314,12 @@ impl Session<'_> {
         match (cmd, evt) {
             // Discord's greeting. A saved token signs in with no question asked.
             (_, "READY") => {
+                // Over the pipe the greeting names the user. A program that names none, or the
+                // made-up one, is not a Discord that tells of voice channels.
+                let user = data["user"]["id"].as_str().unwrap_or("0");
+                if user == "0" || user == STAND_IN_USER {
+                    return Err(End::Lost("what greeted was not Discord".to_owned()));
+                }
                 self.greeted = true;
                 match self.tokens.load() {
                     Some(token) => self.authenticate(&token).await?,
@@ -563,20 +571,19 @@ fn parse_member(state: &Value) -> Option<Member> {
     })
 }
 
-/// Looks for Discord's RPC server among the addresses from the one at `from` on, and opens a
-/// connection to the first that answers. Returns which one that was.
-async fn connect(app: &DiscordApp, from: usize) -> Option<(usize, Socket)> {
-    for (index, url) in app.rpc_urls.iter().enumerate().skip(from) {
-        let address = format!("{url}/?v=1&client_id={}", app.client_id);
-        let (Ok(mut request), Ok(origin)) = (
-            address.into_client_request(),
-            HeaderValue::from_str(&app.origin),
-        ) else {
+/// Looks for Discord's pipe among the places from the one at `from` on, opens the first that is
+/// served and says as which application. Returns which place that was.
+async fn connect(app: &DiscordApp, from: usize) -> Option<(usize, Pipe)> {
+    let hello = json!({ "v": 1, "client_id": app.client_id }).to_string();
+    for (index, path) in app.ipc_paths.iter().enumerate().skip(from) {
+        let Ok(mut socket) = ipc::open(path).await else {
             continue;
         };
-        // Discord only talks to the origins the application has registered.
-        request.headers_mut().insert("Origin", origin);
-        if let Ok(Ok((socket, _))) = timeout(CONNECT_TIMEOUT, connect_async(request)).await {
+        let handshake = Frame {
+            opcode: ipc::HANDSHAKE,
+            body: hello.clone(),
+        };
+        if socket.send(handshake).await.is_ok() {
             return Some((index, socket));
         }
     }
@@ -599,7 +606,7 @@ pub async fn run(
     let mut failures = 0;
     // When Discord accepted the latest connections.
     let mut accepted: VecDeque<Instant> = VecDeque::new();
-    // Which address to start looking at: the first, unless what answered there was not Discord.
+    // Which place to start looking at: the first, unless what answered there was not Discord.
     let mut from = 0;
 
     loop {
@@ -631,9 +638,10 @@ pub async fn run(
             }
             let greeted = session.greeted;
             match end {
-                // Whatever hangs up before greeting is not a Discord that talks to the bridge:
-                // another program may hold the first address. Look at the addresses after it
-                // right away, and do not count it.
+                // Whatever hangs up before greeting, or greets as something else, is not a
+                // Discord that talks to the bridge: another program may hold the first pipe, as
+                // the one that other clients bring does. Look at the places after it right away,
+                // and do not count it.
                 End::Lost(_) if !greeted => {
                     accepted.pop_back();
                     from = index + 1;

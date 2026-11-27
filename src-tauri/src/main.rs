@@ -14,6 +14,7 @@
 
 mod config;
 mod discord;
+mod ipc;
 mod server;
 mod state;
 mod tokens;

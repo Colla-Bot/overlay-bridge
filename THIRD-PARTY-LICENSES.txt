@@ -4088,6 +4088,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 MIT License, used by:
 
 - tokio 1.54.1 (https://github.com/tokio-rs/tokio)
+- tokio-util 0.7.20 (https://github.com/tokio-rs/tokio)
 
 MIT License
 

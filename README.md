@@ -10,11 +10,11 @@ entitled to this source.
 
 ## Why a separate app
 
-Discord's desktop client answers questions about the voice channel on a local RPC server, but
-only for connections whose `Origin` an application has registered with Discord. A web page cannot
-choose its `Origin`, and the overlay's site is not registered for anything, so the pages cannot
-ask themselves. A desktop program can send any `Origin`. The bridge asks in the pages' place and
-passes on only what they need.
+Discord's desktop client answers questions about the voice channel on a local RPC server. It
+serves that on a pipe, which a web page cannot open, and on a WebSocket, which it only lets
+connections use whose `Origin` an application has registered with Discord: a web page cannot
+choose its `Origin`, and the overlay's site is not registered for anything. So the pages cannot
+ask themselves. The bridge asks in their place, over the pipe, and passes on only what they need.
 
 ## What it does
 
@@ -23,15 +23,16 @@ passes on only what they need.
   stays in the tray; started by hand it shows a small status window. Closing the window leaves it
   running, and the tray menu quits it. Only one copy runs: a second launch hands its link to the
   first and ends.
-- **Follows Discord.** It looks for the client on ports 6463 to 6472, passing over a program
-  that hangs up before greeting. It asks the user for permission once (`identify` and `rpc`),
-  and from then on knows the voice channel the user is in, its members, and who is speaking. Its
-  requests for permission say `prompt: none`, so Discord shows its consent screen only to a user
-  who has not agreed before, and a saved token that ran out is replaced unnoticed. The pages are
-  told to approve a request only once Discord has left it unanswered for two seconds. It asks
-  for the voice channel again every 20 seconds to mend anything an event did not tell, and at
-  once when the user is taken out of a channel. It reconnects with growing delays and keeps to
-  ten connections a minute.
+- **Follows Discord.** It looks for the client's pipe, `discord-ipc-0` to `discord-ipc-9`, which
+  Discord's documentation prefers to the WebSocket, passing over a program that hangs up before
+  greeting or greets as something else. It asks the user for permission once (`identify` and
+  `rpc`), and from then on knows the voice channel the user is in, its members, and who is
+  speaking. Its requests for permission say `prompt: none`, so Discord shows its consent screen
+  only to a user who has not agreed before, and a saved token that ran out is replaced
+  unnoticed. The pages are told to approve a request only once Discord has left it unanswered for
+  two seconds. It asks for the voice channel again every 20 seconds to mend anything an event did
+  not tell, and at once when the user is taken out of a channel. It reconnects with growing
+  delays and keeps to ten connections a minute.
 - **Tells the pages.** It listens on `ws://127.0.0.1:46463`, on this computer only, and sends
   every connected page the whole picture whenever any of it changes:
 
@@ -65,11 +66,10 @@ is refused with a 403. The token never leaves the bridge.
 
 ## The Discord application
 
-| Variable                            | What it is                                                     |
-| ----------------------------------- | -------------------------------------------------------------- |
-| `COLLABOT_BRIDGE_DISCORD_CLIENT_ID` | The application's client ID                                    |
-| `COLLABOT_BRIDGE_DISCORD_ORIGIN`    | An origin registered for its RPC connections, sent as `Origin` |
-| `COLLABOT_BRIDGE_DISCORD_TOKEN_URL` | A service that exchanges its codes for tokens                  |
+| Variable                            | What it is                                    |
+| ----------------------------------- | --------------------------------------------- |
+| `COLLABOT_BRIDGE_DISCORD_CLIENT_ID` | The application's client ID                   |
+| `COLLABOT_BRIDGE_DISCORD_TOKEN_URL` | A service that exchanges its codes for tokens |
 
 Which application it is matters. Discord, according to its
 [documentation](https://docs.discord.com/developers/topics/rpc), gives the `rpc` scope only to
@@ -78,10 +78,10 @@ testers. Discord's consent screen names the application. And the code Discord ha
 exchanged for a token by the service, which holds the application's secret, so whoever runs it
 sees the tokens.
 
-For an application of your own, register an RPC origin and a redirect URI for it, and run a
-service that takes `{"code": …}` by POST and answers with Discord's token response (it posts
-`client_id`, `client_secret`, `grant_type=authorization_code`, `code` and the registered
-`redirect_uri` to `https://discord.com/api/oauth2/token`).
+For an application of your own, register a redirect URI for it, and run a service that takes
+`{"code": …}` by POST and answers with Discord's token response (it posts `client_id`,
+`client_secret`, `grant_type=authorization_code`, `code` and the registered `redirect_uri` to
+`https://discord.com/api/oauth2/token`).
 
 ## Building
 
@@ -124,14 +124,13 @@ Any run registers the link's scheme for the current user, pointing at the copy t
 Set when the bridge runs, these environment variables replace parts of the configuration without
 a rebuild, what the build was given of the Discord application among them:
 
-| Variable                            | Replaces                                               |
-| ----------------------------------- | ------------------------------------------------------ |
-| `COLLABOT_BRIDGE_ORIGINS`           | Adds sites that may connect, separated by commas       |
-| `COLLABOT_BRIDGE_DISCORD_CLIENT_ID` | The Discord application                                |
-| `COLLABOT_BRIDGE_DISCORD_ORIGIN`    | The `Origin` sent to Discord                           |
-| `COLLABOT_BRIDGE_DISCORD_TOKEN_URL` | The service that exchanges codes for tokens            |
-| `COLLABOT_BRIDGE_DISCORD_RPC_URLS`  | Where to look for Discord, e.g. `ws://127.0.0.1:16463` |
-| `COLLABOT_BRIDGE_DATA_DIR`          | The folder the token is kept in                        |
+| Variable                            | Replaces                                                   |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `COLLABOT_BRIDGE_ORIGINS`           | Adds sites that may connect, separated by commas           |
+| `COLLABOT_BRIDGE_DISCORD_CLIENT_ID` | The Discord application                                    |
+| `COLLABOT_BRIDGE_DISCORD_TOKEN_URL` | The service that exchanges codes for tokens                |
+| `COLLABOT_BRIDGE_DISCORD_IPC_PATHS` | The pipes to look for Discord at, e.g. `\\.\pipe\stand-in` |
+| `COLLABOT_BRIDGE_DATA_DIR`          | The folder the token is kept in                            |
 
 The last three are how the bridge is tested against a stand-in for Discord, without touching a
 real account.
@@ -142,5 +141,7 @@ One file, `discord.json` in the app's local data folder (`%LOCALAPPDATA%\bot.col
 on Windows), holding Discord's access token so that the user is asked for permission once. It is
 not encrypted. **Discord 권한 지우기** in the window deletes it.
 
-Only Windows has been built and run. The code has nothing Windows-specific beyond what Tauri
-handles, but macOS and Linux are untested.
+Only Windows has been built and run. Besides what Tauri handles, one part differs by system: the
+pipe ([ipc.rs](src-tauri/src/ipc.rs)), a named pipe on Windows and a Unix socket on macOS and
+Linux, where it is looked for in the folders Discord's client uses and in those of its Flatpak
+and Snap packages. That side has never been compiled.
