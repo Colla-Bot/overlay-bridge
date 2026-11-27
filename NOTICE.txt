@@ -1,0 +1,29 @@
+CollaBot Overlay Bridge
+
+■ 이용약관 및 개인정보 처리방침
+
+CollaBot Overlay Bridge(이하 "프로그램")의 이용에는 다음 약관과 방침이 적용됩니다. 프로그램을 설치하면 이에 동의하는 것으로 봅니다.
+
+- 이용약관: https://docs.colla.bot/policy/terms
+- 개인정보 처리방침: https://docs.colla.bot/policy/privacy
+
+■ 오픈소스 라이선스 고지
+
+프로그램은 GNU Affero General Public License 3.0(AGPL-3.0)에 따라 배포되는 자유 소프트웨어입니다. 프로그램의 복제, 수정, 배포에는 위 약관이 아니라 이 라이선스가 적용되며, 약관의 어떤 조항도 이 라이선스가 주는 권리를 제한하지 않습니다.
+
+프로그램은 어떠한 보증도 없이 제공됩니다. 자세한 내용은 라이선스를 참고하세요. 라이선스 전문은 설치 폴더의 LICENSE.txt에, 프로그램에 포함된 다른 오픈소스 소프트웨어와 그 라이선스는 THIRD-PARTY-LICENSES.txt에 있습니다. 소스 코드는 https://github.com/Colla-Bot/overlay-bridge 에서 받을 수 있습니다.
+
+────────────────────
+
+■ Terms of Service and Privacy Policy
+
+The use of CollaBot Overlay Bridge (the "program") is subject to the following terms and policy, written in Korean. By installing the program you agree to them.
+
+- Terms of Service: https://docs.colla.bot/policy/terms
+- Privacy Policy: https://docs.colla.bot/policy/privacy
+
+■ Open source license notice
+
+The program is free software under the GNU Affero General Public License 3.0 (AGPL-3.0). Copying, modifying and distributing the program are governed by that license, not by the terms above, and nothing in the terms limits the rights the license grants.
+
+The program comes with ABSOLUTELY NO WARRANTY; see the license for details. The full license is in LICENSE.txt in the installation folder, and the other open source software the program includes, with its licenses, is in THIRD-PARTY-LICENSES.txt. The source code is at https://github.com/Colla-Bot/overlay-bridge.

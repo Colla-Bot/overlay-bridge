@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CollaBot Overlay Bridge</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>CollaBot Overlay Bridge</h1>
+      <dl>
+        <div>
+          <dt>Discord</dt>
+          <dd id="discord">확인하는 중</dd>
+        </div>
+        <div>
+          <dt>음성 채널</dt>
+          <dd id="channel">-</dd>
+        </div>
+        <div>
+          <dt>연결된 화면</dt>
+          <dd id="clients">0개</dd>
+        </div>
+      </dl>
+      <p id="error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="authorize" type="button" hidden>Discord 권한 다시 요청</button>
+        <button id="forget" type="button" hidden>Discord 권한 지우기</button>
+      </div>
+      <p class="hint">이 창을 닫아도 트레이에서 계속 실행됩니다.</p>
+    </main>
+    <script src="main.js"></script>
+  </body>
+</html>

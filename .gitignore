@@ -1,0 +1,7 @@
+/node_modules
+/src-tauri/target
+/src-tauri/gen
+
+# What the build is made with, which stays on this computer: see .env.example.
+.env*
+!.env.example

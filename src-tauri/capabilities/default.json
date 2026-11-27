@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the bridge's own window may ask of Tauri: to be told the status as it changes. The bridge's own commands need no entry here, as Tauri lets the app's own pages call those.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen"]
+}
